@@ -2,6 +2,7 @@ import { useQuery } from "@tanstack/react-query";
 import { useEffect, useState, useMemo } from "react";
 import { listKBResources } from "@/lib/api/knowledgeBase";
 import { FileItem } from "@/lib/types/file";
+import { useOptimisticDeleteRegistry } from "./useOptimisticDeleteRegistry";
 import { toast } from 'react-toastify';
 
 interface UseKnowledgeBaseStatusProps {
@@ -17,6 +18,13 @@ export function useKnowledgeBaseStatus({ kbId, enabled = true }: UseKnowledgeBas
   const [shouldPoll, setShouldPoll] = useState(true);
   const [pollingStartTime] = useState(Date.now());
   const [hasShownErrorToast, setHasShownErrorToast] = useState(false);
+
+  // Get optimistic delete registry
+  const { 
+    filterPollingResponse, 
+    isFileStatusLocked,
+    getFileStatusOverride
+  } = useOptimisticDeleteRegistry();
 
   // Don't poll for temporary/optimistic KB IDs
   const isTemporaryKB = kbId?.startsWith('temp-') || false;
@@ -37,14 +45,29 @@ export function useKnowledgeBaseStatus({ kbId, enabled = true }: UseKnowledgeBas
     staleTime: 0, // Always consider data stale for polling
   });
 
+  // Filter polling data to exclude optimistically deleted files
+  const filteredKbResources = useMemo(() => {
+    if (!kbResources?.data) return null;
+    
+    // Filter out files that are marked as optimistically deleted
+    const filteredData = filterPollingResponse(kbResources.data);
+    
+    console.log(`Filtered KB resources: ${kbResources.data.length} -> ${filteredData.length} (${kbResources.data.length - filteredData.length} optimistically deleted)`);
+    
+    return {
+      ...kbResources,
+      data: filteredData
+    };
+  }, [kbResources, filterPollingResponse]);
+
   // Determine if polling should continue
   useEffect(() => {
     if (!enabled || !kbId) return;
 
     // If we have no data yet, keep polling
-    if (!kbResources?.data) return;
+    if (!filteredKbResources?.data) return;
 
-    const resources = kbResources.data;
+    const resources = filteredKbResources.data;
 
     // Check polling timeout first
     const pollingDuration = Date.now() - pollingStartTime;
@@ -103,7 +126,7 @@ export function useKnowledgeBaseStatus({ kbId, enabled = true }: UseKnowledgeBas
 
     // Continue polling
     console.log("Files still pending, continuing polling...");
-  }, [kbResources, pollingStartTime, hasShownErrorToast, enabled, kbId]);
+  }, [filteredKbResources, pollingStartTime, hasShownErrorToast, enabled, kbId]);
 
   // Reset polling when KB changes
   useEffect(() => {
@@ -114,43 +137,51 @@ export function useKnowledgeBaseStatus({ kbId, enabled = true }: UseKnowledgeBas
   }, [kbId]);
 
   // Build status map for quick lookups
-  // IMPORTANT: Only include files that are actually in the KB
-  // Files not in this map will fall back to their default status (which should be "-" for deleted files)
+  // IMPORTANT: Only include files that are actually in the KB and not optimistically deleted
+  // Files not in this map will fall back to their default status
   // OPTIMISTIC UI: Treat "pending" as "indexed" so users see instant feedback
   const statusMap = useMemo(() => {
     const map = new Map<string, string>();
     
-    if (kbResources?.data) {
-      console.log(`Building status map from ${kbResources.data.length} KB resources`);
-      console.log('KB Resources:', kbResources.data.map(r => ({ id: r.id, name: r.name, status: r.status })));
+    if (filteredKbResources?.data) {
+      console.log(`Building status map from ${filteredKbResources.data.length} filtered KB resources`);
+      console.log('Filtered KB Resources:', filteredKbResources.data.map(r => ({ id: r.id, name: r.name, status: r.status })));
       
-      kbResources.data.forEach((resource) => {
-        let displayStatus = resource.status || "unknown";
+      filteredKbResources.data.forEach((resource) => {
+        let displayStatus: FileItem["status"] = resource.status || "unknown";
         
-        // OPTIMISTIC UI: Show "pending" as "indexed" to match optimistic updates
-        // Only revert to error if it actually fails
-        if (displayStatus === "pending") {
-          displayStatus = "indexed";
-          console.log(`Status map (optimistic): ${resource.id} (${resource.name}) -> pending -> indexed`);
+        // Check if this file has a status override (e.g., optimistically deleted)
+        const override = getFileStatusOverride(resource.id);
+        if (override && override !== null) {
+          // Override is "-" for deleted files, which we'll treat as undefined status
+          displayStatus = undefined; // Show as "-" in UI
+          console.log(`Status map (override): ${resource.id} (${resource.name}) -> ${resource.status} -> deleted`);
         } else {
-          console.log(`Status map: ${resource.id} (${resource.name}) -> ${displayStatus}`);
+          // OPTIMISTIC UI: Show "pending" as "indexed" to match optimistic updates
+          // Only revert to error if it actually fails
+          if (displayStatus === "pending") {
+            displayStatus = "indexed";
+            console.log(`Status map (optimistic): ${resource.id} (${resource.name}) -> pending -> indexed`);
+          } else {
+            console.log(`Status map: ${resource.id} (${resource.name}) -> ${displayStatus}`);
+          }
         }
         
-        map.set(resource.id, displayStatus);
+        map.set(resource.id, displayStatus || "unknown");
       });
     } else {
-      console.log('No KB resources data available for status map');
+      console.log('No filtered KB resources data available for status map');
     }
     
     console.log(`Final status map has ${map.size} entries`);
     return map;
-  }, [kbResources?.data]);
+  }, [filteredKbResources?.data, getFileStatusOverride]);
 
   // Calculate if all files are settled (including error status)
   const allFilesSettled = useMemo(() => {
-    if (!kbResources?.data) return false;
+    if (!filteredKbResources?.data) return false;
 
-    const files = kbResources.data.filter((item) => item.type === "file");
+    const files = filteredKbResources.data.filter((item) => item.type === "file");
     if (files.length === 0) return true; // No files means settled
 
     return files.every((file) => 
@@ -158,7 +189,7 @@ export function useKnowledgeBaseStatus({ kbId, enabled = true }: UseKnowledgeBas
       file.status === "error"
       // Note: we don't include pending_delete here because that means deletion is in progress
     );
-  }, [kbResources?.data]);
+  }, [filteredKbResources?.data]);
 
   // Count files by status (including error)
   const statusCounts = useMemo(() => {
@@ -170,7 +201,7 @@ export function useKnowledgeBaseStatus({ kbId, enabled = true }: UseKnowledgeBas
       unknown: 0,
     };
 
-    kbResources?.data?.forEach((resource) => {
+    filteredKbResources?.data?.forEach((resource) => {
       const status = resource.status || "unknown";
       if (status in counts) {
         counts[status as keyof typeof counts]++;
@@ -178,10 +209,10 @@ export function useKnowledgeBaseStatus({ kbId, enabled = true }: UseKnowledgeBas
     });
 
     return counts;
-  }, [kbResources?.data]);
+  }, [filteredKbResources?.data]);
 
   return {
-    kbResources: kbResources?.data || [],
+    kbResources: filteredKbResources?.data || [],
     statusMap,
     statusCounts,
     allFilesSettled,

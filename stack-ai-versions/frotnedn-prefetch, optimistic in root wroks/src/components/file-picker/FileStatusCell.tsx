@@ -1,4 +1,5 @@
 import { FileItem } from "@/lib/types/file";
+import { useOptimisticDeleteRegistry } from "@/hooks/useOptimisticDeleteRegistry";
 
 interface FileStatusCellProps {
   file: FileItem;
@@ -6,11 +7,20 @@ interface FileStatusCellProps {
 }
 
 export function FileStatusCell({ file, isFileDeleting }: FileStatusCellProps) {
-  const status = file.status;
+  const { getFileStatusOverride } = useOptimisticDeleteRegistry();
+  
+  // Check for optimistic delete override first
+  const statusOverride = getFileStatusOverride(file.id);
+  const status = statusOverride || file.status;
 
   // Never show status for directories
   if (file.type === "directory") {
     return <span className="text-gray-400">-</span>;
+  }
+
+  // Handle optimistic delete state (status is "-")
+  if (statusOverride === "-" || status === undefined || status === null) {
+    return <span className="text-gray-400 font-medium">-</span>;
   }
 
   if (status === "indexed") {

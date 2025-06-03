@@ -5,6 +5,9 @@ import { saveKBToStorage, getKBFromStorage, clearKBFromStorage } from "@/lib/uti
 import { deduplicateResourceIds } from "@/lib/utils/resourceDeduplication";
 import { useKnowledgeBaseStatus } from "./useKnowledgeBaseStatus";
 import { useKnowledgeBaseDeletion } from "./useKnowledgeBaseDeletion";
+import { useSyncState } from "./useSyncState";
+import { useDeleteQueue } from "./useDeleteQueue";
+import { useOptimisticDeleteRegistry } from "./useOptimisticDeleteRegistry";
 import type { KnowledgeBase } from "@/lib/types/knowledgeBase";
 import type { FileItem } from "@/lib/types/file";
 import { toast } from 'react-toastify';
@@ -20,6 +23,33 @@ export function useKnowledgeBaseOperations() {
 
   const hasKB = currentKB !== null;
 
+  // Sync state management
+  const {
+    syncState,
+    isPending: isSyncPending,
+    isSynced: isSyncCompleted,
+    resetSyncState,
+    setSyncPending,
+    setSyncCompleted,
+    setSyncState,
+  } = useSyncState();
+
+  // Delete queue management
+  const {
+    queueStats,
+    queueDeleteRequest,
+    processQueue,
+    clearQueue,
+    updateQueueKBId,
+  } = useDeleteQueue();
+
+  // Optimistic delete registry
+  const {
+    markFileAsDeleted,
+    clearRegistry,
+    getFileStatusOverride,
+  } = useOptimisticDeleteRegistry();
+
   // Poll KB status after creation - enable polling when we have a KB
   const {
     statusMap,
@@ -34,6 +64,16 @@ export function useKnowledgeBaseOperations() {
 
   // Handle file deletion capabilities
   const { isFileDeleting, canDeleteFile, canDeleteFolder } = useKnowledgeBaseDeletion(currentKB?.id || null, statusMap);
+
+  // Process delete queue when sync completes
+  useEffect(() => {
+    console.log(`🔍 Queue effect triggered: isSyncCompleted=${isSyncCompleted}, hasItems=${queueStats.hasItems}, processing=${queueStats.processing}, kbId=${currentKB?.id}`);
+    
+    if (isSyncCompleted && queueStats.hasItems && !queueStats.processing) {
+      console.log("🔄 Sync completed, processing delete queue");
+      processQueue(currentKB?.id || null);
+    }
+  }, [isSyncCompleted, queueStats.hasItems, queueStats.processing, processQueue, currentKB?.id]);
 
   // OPTIMISTIC KB CREATION
   const createKBMutation = useMutation({
@@ -52,24 +92,29 @@ export function useKnowledgeBaseOperations() {
 
       console.log("KB created, triggering sync:", kb.id);
       await syncKnowledgeBase(kb.id);
+      console.log("✅ Sync API call completed successfully");
 
       return { kb, resourceIds: deduplicatedIds, files };
     },
     onMutate: async ({ resourceIds, files }) => {
       console.log("🚀 OPTIMISTIC KB CREATION START");
       
-      // 1. IMMEDIATELY create fake KB for UI state
+      // 1. Set sync state to pending
+      const tempKbId = `temp-${Date.now()}`;
+      setSyncPending(tempKbId);
+      
+      // 2. IMMEDIATELY create fake KB for UI state
       const optimisticKB = {
-        id: `temp-${Date.now()}`, // Temporary ID
+        id: tempKbId,
         name: `Knowledge Base ${new Date().toLocaleString()}`,
         created_at: new Date().toISOString(),
         is_empty: false,
       };
       
-      // 2. IMMEDIATELY update component state (hasKB becomes true)
+      // 3. IMMEDIATELY update component state (hasKB becomes true)
       setCurrentKB(optimisticKB);
       
-      // 3. IMMEDIATELY update KB resources cache with "indexed" files
+      // 4. IMMEDIATELY update KB resources cache with "indexed" files
       const optimisticKBResources = resourceIds.map(id => {
         const file = files.find(f => f.id === id);
         return {
@@ -95,6 +140,15 @@ export function useKnowledgeBaseOperations() {
     },
     onSuccess: ({ kb, resourceIds }, variables, context) => {
       console.log("🎉 REAL KB CREATION SUCCESS");
+      
+      // Update sync state to synced with the real KB ID
+      setSyncState("synced", kb.id);
+      console.log("🔄 Sync state updated to 'synced' after API completion");
+      
+      // Update any queued delete requests from temp KB ID to real KB ID
+      if (context?.optimisticKB) {
+        updateQueueKBId(context.optimisticKB.id, kb.id);
+      }
       
       // Replace optimistic KB with real KB
       setCurrentKB(kb);
@@ -128,6 +182,9 @@ export function useKnowledgeBaseOperations() {
     onError: (error, variables, context) => {
       console.error("❌ KB CREATION FAILED:", error);
       
+      // Reset sync state
+      resetSyncState();
+      
       // Revert everything
       if (context?.previousKB) {
         setCurrentKB(context.previousKB);
@@ -147,12 +204,18 @@ export function useKnowledgeBaseOperations() {
     },
   });
 
-  // OPTIMISTIC FILE DELETION
+  // OPTIMISTIC FILE DELETION WITH QUEUE
   const deleteFilesMutation = useMutation({
     mutationKey: ["deleteFiles"],
     mutationFn: async ({ fileIds, files }: { fileIds: string[]; files: FileItem[] }) => {
       if (!currentKB?.id) throw new Error("No KB ID");
       
+      // If sync is pending, this will be handled by the queue
+      if (isSyncPending) {
+        throw new Error("Sync is pending - delete should be queued");
+      }
+      
+      // Direct deletion for when sync is complete
       const deletePromises = fileIds.map(async (fileId) => {
         const file = files.find(f => f.id === fileId);  
         if (!file) return;
@@ -164,40 +227,15 @@ export function useKnowledgeBaseOperations() {
       await Promise.all(deletePromises);
       return { fileIds };
     },
-    onMutate: async ({ fileIds }) => {
-      console.log("🗑️ OPTIMISTIC FILE DELETION START");
-      
-      if (!currentKB?.id) return;
-      
-      // Cancel ongoing queries
-      await queryClient.cancelQueries({ queryKey: ["kb-resources", currentKB.id] });
-      
-      // Get current KB resources
-      const currentKBData = queryClient.getQueryData<{ data: FileItem[] }>(["kb-resources", currentKB.id]);
-      
-      // IMMEDIATELY remove files from KB resources cache
-      if (currentKBData?.data) {
-        const filteredData = {
-          ...currentKBData,
-          data: currentKBData.data.filter(resource => !fileIds.includes(resource.id))
-        };
-        
-        queryClient.setQueryData(["kb-resources", currentKB.id], filteredData);
-        console.log("✅ Files immediately removed from KB cache, UI should show '-' status");
-      }
-      
-      return { 
-        previousKBData: currentKBData,
-        fileIds,
-        kbId: currentKB.id 
-      };
-    },
     onSuccess: ({ fileIds }, variables, context) => {
-      console.log("🎉 FILE DELETION SUCCESS");
+      console.log("🎉 DIRECT FILE DELETION SUCCESS");
       
-      // Ensure the cache update triggers re-render for selection validation
-      // The auto-deselect effect in useFileSelection should handle clearing selections
-      console.log(`Files deleted successfully: ${fileIds.join(', ')}`);
+      // Remove files from optimistic delete registry since they're actually deleted
+      fileIds.forEach(fileId => {
+        // Note: Don't remove from registry here as the files are already 
+        // removed from cache optimistically. The registry entry will be 
+        // cleaned up when the cache update happens.
+      });
       
       toast.success(`Successfully deleted ${fileIds.length} file(s)`, {
         autoClose: 3000,
@@ -205,12 +243,7 @@ export function useKnowledgeBaseOperations() {
       });
     },
     onError: (error, variables, context) => {
-      console.error("❌ FILE DELETION FAILED:", error);
-      
-      // Revert KB resources cache
-      if (context?.previousKBData && context?.kbId) {
-        queryClient.setQueryData(["kb-resources", context.kbId], context.previousKBData);
-      }
+      console.error("❌ DIRECT FILE DELETION FAILED:", error);
       
       toast.error("Failed to delete files. Please try again.", {
         autoClose: 5000,
@@ -241,39 +274,114 @@ export function useKnowledgeBaseOperations() {
       }
 
       console.log(`🗑️ Starting optimistic file deletion: ${selectedIds.length} files`);
-      deleteFilesMutation.mutate({ fileIds: selectedIds, files });
+
+      // 1. IMMEDIATELY mark files as deleted in registry (locks their status)
+      selectedIds.forEach(fileId => {
+        const file = files.find(f => f.id === fileId);
+        if (file) {
+          markFileAsDeleted(fileId, file.name, currentKB.id);
+        }
+      });
+
+      // 2. IMMEDIATELY remove from KB resources cache (shows as "-" in UI)
+      const kbQueryKey = ["kb-resources", currentKB.id];
+      const currentKBData = queryClient.getQueryData<{ data: FileItem[] }>(kbQueryKey);
+      
+      if (currentKBData?.data) {
+        const filteredData = {
+          ...currentKBData,
+          data: currentKBData.data.filter(resource => !selectedIds.includes(resource.id))
+        };
+        
+        queryClient.setQueryData(kbQueryKey, filteredData);
+        console.log("✅ Files immediately removed from KB cache, UI should show '-' status");
+      }
+
+      // 3. Handle deletion based on sync state
+      if (isSyncPending) {
+        // Queue the deletions for later processing
+        console.log("🕒 Sync is pending, queueing delete requests");
+        selectedIds.forEach(fileId => {
+          const file = files.find(f => f.id === fileId);
+          if (file) {
+            queueDeleteRequest(fileId, file.name, currentKB.id);
+          }
+        });
+        
+        toast.info(
+          `Queued ${selectedIds.length} file(s) for deletion. They will be processed when sync completes.`,
+          {
+            autoClose: 4000,
+            toastId: 'files-queued-for-deletion'
+          }
+        );
+      } else {
+        // Execute deletion immediately
+        console.log("✅ Sync is complete, executing delete immediately");
+        deleteFilesMutation.mutate({ fileIds: selectedIds, files });
+      }
     },
-    [currentKB?.id, deleteFilesMutation]
+    [
+      currentKB?.id, 
+      isSyncPending, 
+      markFileAsDeleted, 
+      queueDeleteRequest, 
+      deleteFilesMutation, 
+      queryClient
+    ]
   );
 
   const createNewKB = useCallback(() => {
-    console.log("Creating new KB - clearing storage and reloading");
+    console.log("Creating new KB - clearing all state and reloading");
+    
+    // Reset all state systems
+    resetSyncState();
+    clearQueue();
+    clearRegistry();
+    
+    // Clear KB storage
     clearKBFromStorage();
+    setCurrentKB(null);
+    
+    // Force page reload to ensure clean state
     window.location.reload();
-  }, []);
+  }, [resetSyncState, clearQueue, clearRegistry]);
 
-  // Track mutation states
-  const isCreating = createKBMutation.isPending;
-  const isDeleting = false; // No delete loader - always optimistic
+  // Enhanced status map that respects optimistic deletes
+  const enhancedStatusMap = useMemo(() => {
+    const enhanced = new Map(statusMap);
+    
+    // Override status for optimistically deleted files
+    statusMap?.forEach((status, fileId) => {
+      const override = getFileStatusOverride(fileId);
+      if (override) {
+        enhanced.set(fileId, override);
+      }
+    });
+    
+    return enhanced;
+  }, [statusMap, getFileStatusOverride]);
 
   return {
     currentKB,
     hasKB,
-    isCreating,
+    isCreating: createKBMutation.isPending,
     createKnowledgeBaseWithFiles,
     createNewKB,
-    statusMap,
+    statusMap: enhancedStatusMap, // Use enhanced status map
     statusCounts,
     allFilesSettled,
     isPolling,
-    shouldPoll,
     // Deletion functions
-    isDeleting,
+    isDeleting: deleteFilesMutation.isPending,
     deleteSelectedFiles,
     isFileDeleting,
     canDeleteFile,
     canDeleteFolder,
-    isError: createKBMutation.isError || deleteFilesMutation.isError,
-    error: createKBMutation.error || deleteFilesMutation.error,
+    // New sync and queue state
+    syncState,
+    isSyncPending,
+    isSyncCompleted,
+    queueStats,
   };
 }

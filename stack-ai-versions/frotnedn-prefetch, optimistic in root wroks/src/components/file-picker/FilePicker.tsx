@@ -25,6 +25,11 @@ export function FilePicker() {
     isFileDeleting,
     canDeleteFile,
     canDeleteFolder,
+    // New sync and queue state
+    syncState,
+    isSyncPending,
+    isSyncCompleted,
+    queueStats,
   } = useKnowledgeBaseOperations();
 
   const { files, isLoading, error, toggleFolder, collapseAllFolders, startPrefetch, stopPrefetch, registerFolder, isPrefetching } = useFileTree({
@@ -47,6 +52,40 @@ export function FilePicker() {
     <div className="h-screen flex flex-col">
       <div className="flex-shrink-0 p-4 pb-2">
         <h1 className="text-2xl font-bold mb-2">Google Drive File Picker</h1>
+        
+        {/* Sync State Indicator */}
+        {hasKB && (
+          <div className="mb-2 flex items-center space-x-4 text-sm">
+            <div className="flex items-center space-x-2">
+              <span className="font-medium">Sync Status:</span>
+              {isSyncPending && (
+                <span className="text-yellow-600 flex items-center">
+                  <span className="animate-spin mr-1">⟳</span>
+                  Syncing...
+                </span>
+              )}
+              {isSyncCompleted && (
+                <span className="text-green-600 flex items-center">
+                  ✓ Synced
+                </span>
+              )}
+              {syncState === "idle" && (
+                <span className="text-gray-500">Idle</span>
+              )}
+            </div>
+            
+            {/* Queue Status */}
+            {queueStats.hasItems && (
+              <div className="flex items-center space-x-2">
+                <span className="font-medium">Delete Queue:</span>
+                <span className="text-blue-600">
+                  {queueStats.count} file(s) queued
+                  {queueStats.processing && " (processing...)"}
+                </span>
+              </div>
+            )}
+          </div>
+        )}
       </div>
 
       <div className="flex-1 min-h-0 p-4">
