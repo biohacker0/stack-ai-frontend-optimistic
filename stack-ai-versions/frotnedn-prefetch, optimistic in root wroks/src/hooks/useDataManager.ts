@@ -1,6 +1,13 @@
 import { useQueryClient, useQuery } from "@tanstack/react-query";
-import { useCallback, useMemo } from "react";
+import { useCallback, useMemo, useEffect } from "react";
 import { FileItem } from "@/lib/types/file";
+import { 
+  getCacheFromStorage, 
+  saveCacheToStorage, 
+  clearCacheFromStorage, 
+  updateCacheInStorage,
+  type CacheStorageData 
+} from "@/lib/utils/localStorage";
 
 /**
  * Centralized Data Manager
@@ -59,6 +66,76 @@ interface OptimisticDeleteRegistryData {
 
 export function useDataManager() {
   const queryClient = useQueryClient();
+
+  // ==================== CACHE PERSISTENCE ====================
+  
+  // Load cache from localStorage on mount
+  useEffect(() => {
+    const storedCache = getCacheFromStorage();
+    if (!storedCache) return;
+
+    console.log("📖 [DataManager] Restoring cache from localStorage");
+
+    // Restore root resources cache
+    if (storedCache.rootResources) {
+      queryClient.setQueryData(["kb-resources", storedCache.kbId], storedCache.rootResources);
+      console.log(`📖 [Cache] Restored root resources for KB: ${storedCache.kbId}`);
+    }
+
+    // Restore folder status caches
+    Object.entries(storedCache.folderStatuses).forEach(([folderPath, folderData]) => {
+      queryClient.setQueryData(["kb-file-status", storedCache.kbId, folderPath], folderData);
+      console.log(`📖 [Cache] Restored folder status: ${folderPath}`);
+    });
+
+    // Restore optimistic registry
+    if (storedCache.optimisticRegistry) {
+      queryClient.setQueryData(OPTIMISTIC_DELETE_REGISTRY_KEY, {
+        entries: storedCache.optimisticRegistry,
+        lastUpdated: Date.now(),
+      });
+      console.log("📖 [Cache] Restored optimistic delete registry");
+    }
+  }, [queryClient]);
+
+  // Save cache to localStorage when data changes
+  const persistCacheToStorage = useCallback(
+    (kbId: string) => {
+      try {
+        // Get current cache data
+        const rootResources = queryClient.getQueryData<{ data: any[] }>(["kb-resources", kbId]);
+        const registryData = queryClient.getQueryData<OptimisticDeleteRegistryData>(OPTIMISTIC_DELETE_REGISTRY_KEY);
+
+        // Collect all folder status caches for this KB
+        const folderStatuses: Record<string, { data: any[] }> = {};
+        const queryCache = queryClient.getQueryCache();
+        
+        queryCache.getAll().forEach((query) => {
+          if (query.queryKey[0] === "kb-file-status" && query.queryKey[1] === kbId) {
+            const folderPath = query.queryKey[2] as string;
+            const data = query.state.data as { data: any[] } | undefined;
+            if (data) {
+              folderStatuses[folderPath] = data;
+            }
+          }
+        });
+
+        const cacheData: CacheStorageData = {
+          kbId,
+          timestamp: Date.now(),
+          rootResources: rootResources || null,
+          folderStatuses,
+          optimisticRegistry: registryData?.entries || {},
+          version: "1.0",
+        };
+
+        saveCacheToStorage(cacheData);
+      } catch (error) {
+        console.error("Failed to persist cache:", error);
+      }
+    },
+    [queryClient]
+  );
 
   // ==================== SYNC STATE ====================
   
@@ -194,10 +271,13 @@ export function useDataManager() {
       queryClient.setQueryData(cacheKey, newData);
       console.log(`📝 [DataManager] Updated KB root cache: ${kbId}`);
       
+      // Persist cache to localStorage
+      persistCacheToStorage(kbId);
+      
       // Trigger re-render for optimistic updates
       incrementOptimisticUpdateCounter();
     },
-    [queryClient, incrementOptimisticUpdateCounter]
+    [queryClient, incrementOptimisticUpdateCounter, persistCacheToStorage]
   );
 
   const removeFromKBResourcesCache = useCallback(
@@ -232,8 +312,11 @@ export function useDataManager() {
       const newData = updater(currentData);
       queryClient.setQueryData(cacheKey, newData);
       console.log(`📝 [DataManager] Updated folder status cache: ${kbId}${folderPath}`);
+      
+      // Persist cache to localStorage
+      persistCacheToStorage(kbId);
     },
-    [queryClient]
+    [queryClient, persistCacheToStorage]
   );
 
   const removeFromFolderStatusCache = useCallback(
@@ -474,11 +557,15 @@ export function useDataManager() {
     getFolderContents,
     getAllDescendantFileIds,
 
+    // Cache persistence
+    persistCacheToStorage,
+
     // Utility
     clearAllState: () => {
       updateSyncState("idle", null);
       updateQueueData(() => ({ queue: [], processing: false, lastUpdated: Date.now() }));
       updateRegistryData(() => ({ entries: {}, lastUpdated: Date.now() }));
+      clearCacheFromStorage();
       console.log("🧹 [DataManager] All state cleared");
     },
   };

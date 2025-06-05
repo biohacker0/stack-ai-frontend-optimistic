@@ -37,6 +37,7 @@ interface FilePickerTableProps {
   hasKB?: boolean;
   isCreatingKB?: boolean;
   isDeletingKB?: boolean;
+  isActuallyDeleting?: boolean;
   statusMap?: Map<string, string>;
   canDeleteFile?: (file: FileItem) => boolean;
   canDeleteFolder?: (folder: FileItem) => boolean;
@@ -59,6 +60,7 @@ export function FilePickerTable({
   hasKB,
   isCreatingKB,
   isDeletingKB,
+  isActuallyDeleting,
   statusMap,
   canDeleteFile,
   canDeleteFolder,
@@ -223,13 +225,14 @@ export function FilePickerTable({
         filteredCount={table.getFilteredRowModel().rows.length}
         selectedFiles={selectedFiles}
         selectedResourceIds={selectedResourceIds}
-        hasKB={hasKB}
-        isCreatingKB={isCreatingKB}
-        isDeletingKB={isDeletingKB}
-        onCreateKB={onCreateKB}
-        onCreateNewKB={onCreateNewKB}
-        onDeleteFiles={onDeleteFiles}
-        allFiles={files}
+                  hasKB={hasKB}
+          isCreatingKB={isCreatingKB}
+          isDeletingKB={isDeletingKB}
+          isActuallyDeleting={isActuallyDeleting}
+          onCreateKB={onCreateKB}
+          onCreateNewKB={onCreateNewKB}
+          onDeleteFiles={onDeleteFiles}
+          allFiles={files}
       />
 
       {/* Table Container with Internal Scroll */}

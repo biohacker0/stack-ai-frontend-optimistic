@@ -19,6 +19,14 @@ export function useKnowledgeBaseOperations() {
     return stored ? { ...stored, is_empty: false } : null;
   });
 
+  // Load cache when KB is restored from localStorage
+  useEffect(() => {
+    if (currentKB?.id) {
+      // Cache will be loaded by DataManager's useEffect
+      console.log(`📖 [KBOperations] KB restored from localStorage: ${currentKB.id}`);
+    }
+  }, [currentKB?.id]);
+
   const hasKB = currentKB !== null;
 
   // Use DataManager for centralized state management
@@ -56,6 +64,9 @@ export function useKnowledgeBaseOperations() {
     getFolderPathFromFileName,
     getFolderContents,
     getAllDescendantFileIds,
+    
+    // Cache persistence
+    persistCacheToStorage,
   } = useDataManager();
 
   // Poll KB status after creation - enable polling when we have a KB
@@ -71,7 +82,7 @@ export function useKnowledgeBaseOperations() {
   });
 
   // Handle file deletion capabilities
-  const { isFileDeleting, canDeleteFile, canDeleteFolder } = useKnowledgeBaseDeletion(currentKB?.id || null, statusMap);
+  const { isDeleting: isActuallyDeleting, isFileDeleting, canDeleteFile, canDeleteFolder } = useKnowledgeBaseDeletion(currentKB?.id || null, statusMap);
 
   // Process delete queue when sync completes
   useEffect(() => {
@@ -326,6 +337,9 @@ export function useKnowledgeBaseOperations() {
       
       console.log("✅ Real KB set, optimistic status maintained until polling overrides");
       
+      // Persist cache to localStorage after KB creation
+      persistCacheToStorage(kb.id);
+      
       toast.success("Knowledge base created successfully!", {
         autoClose: 3000,
         toastId: 'kb-creation-success'
@@ -394,6 +408,11 @@ export function useKnowledgeBaseOperations() {
         // removed from cache optimistically. The registry entry will be 
         // cleaned up when the cache update happens.
       });
+      
+      // Persist cache after successful deletion
+      if (currentKB?.id) {
+        persistCacheToStorage(currentKB.id);
+      }
       
       toast.success(`Successfully deleted ${fileIds.length} file(s)`, {
         autoClose: 3000,
@@ -497,7 +516,7 @@ export function useKnowledgeBaseOperations() {
     clearQueue();
     clearRegistry();
     
-    // Clear KB storage
+    // Clear KB storage and cache
     clearKBFromStorage();
     setCurrentKB(null);
     
@@ -517,6 +536,7 @@ export function useKnowledgeBaseOperations() {
     isPolling,
     // Deletion functions
     isDeleting: deleteFilesMutation.isPending,
+    isActuallyDeleting, // From useKnowledgeBaseDeletion - tracks actual API calls
     deleteSelectedFiles,
     isFileDeleting,
     canDeleteFile,

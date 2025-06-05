@@ -21,6 +21,7 @@ export function FilePicker() {
     isPolling,
     // Deletion functions
     isDeleting,
+    isActuallyDeleting,
     deleteSelectedFiles,
     isFileDeleting,
     canDeleteFile,
@@ -105,6 +106,7 @@ export function FilePicker() {
           hasKB={hasKB}
           isCreatingKB={isCreating}
           isDeletingKB={isDeleting}
+          isActuallyDeleting={isActuallyDeleting}
           statusMap={statusMap}
           canDeleteFile={canDeleteFile}
           canDeleteFolder={(folder) => canDeleteFolder(folder, files)}

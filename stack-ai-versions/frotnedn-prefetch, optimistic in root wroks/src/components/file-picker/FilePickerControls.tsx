@@ -11,6 +11,7 @@ interface FilePickerControlsProps {
   hasKB: boolean | undefined;
   isCreatingKB: boolean | undefined;
   isDeletingKB: boolean | undefined;
+  isActuallyDeleting?: boolean; // New prop to distinguish actual API calls from optimistic updates
   onCreateKB?: (resourceIds: string[], files: FileItem[]) => void;
   onCreateNewKB?: () => void;
   onDeleteFiles?: (selectedIds: string[]) => void;
@@ -26,6 +27,7 @@ export function FilePickerControls({
   hasKB,
   isCreatingKB,
   isDeletingKB,
+  isActuallyDeleting = false,
   onCreateKB,
   onCreateNewKB,
   onDeleteFiles,
@@ -54,11 +56,11 @@ export function FilePickerControls({
           <>
             <Button
               variant="outline"
-              disabled={selectedFiles.length === 0 || isDeletingKB}
+              disabled={selectedFiles.length === 0 || isActuallyDeleting}
               onClick={() => onDeleteFiles?.(selectedResourceIds)}
               className="text-red-600 hover:text-red-700 hover:bg-red-50"
             >
-              {isDeletingKB ? "Deleting..." : `Delete Selected Files (${selectedFiles.length})`}
+              {isActuallyDeleting ? "Deleting..." : `Delete Selected Files (${selectedFiles.length})`}
             </Button>
             <Button variant="outline" onClick={onCreateNewKB} disabled={isDeletingKB}>
               Create New Knowledge Base
