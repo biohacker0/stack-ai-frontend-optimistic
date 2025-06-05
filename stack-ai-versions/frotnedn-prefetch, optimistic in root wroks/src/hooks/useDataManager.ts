@@ -10,30 +10,32 @@ import { FileItem } from "@/lib/types/file";
  * 2. Delete Queue Management  
  * 3. Optimistic Delete Registry
  * 4. File Status Resolution (with clear precedence)
- * 5. Cache Operations
+ * 5. Cache Operations (Root + Folder)
+ * 6. Folder Operations
  */
 
 // State Keys
 const SYNC_STATE_KEY = ["sync-state"];
 const DELETE_QUEUE_KEY = ["delete-queue"];
 const OPTIMISTIC_DELETE_REGISTRY_KEY = ["optimistic-delete-registry"];
+const OPTIMISTIC_UPDATE_COUNTER_KEY = ["optimistic-update-counter"];
 
 // Types
 export type SyncState = "idle" | "pending" | "synced";
 
-interface SyncStateData {
-  state: SyncState;
-  kbId: string | null;
-  lastUpdated: number;
-}
-
-interface DeleteRequest {
+export interface DeleteRequest {
   id: string;
   fileId: string;
   fileName: string;
   resourcePath: string;
   kbId: string;
   timestamp: number;
+}
+
+interface SyncStateData {
+  state: SyncState;
+  kbId: string | null;
+  lastUpdated: number;
 }
 
 interface DeleteQueueData {
@@ -120,22 +122,42 @@ export function useDataManager() {
     [queryClient, registryData]
   );
 
+  // ==================== OPTIMISTIC UPDATE COUNTER ====================
+  
+  const { data: optimisticUpdateCounter } = useQuery({
+    queryKey: OPTIMISTIC_UPDATE_COUNTER_KEY,
+    queryFn: () => ({ count: 0, lastUpdated: Date.now() }),
+    initialData: { count: 0, lastUpdated: Date.now() },
+    staleTime: Infinity,
+  });
+
+  const incrementOptimisticUpdateCounter = useCallback(() => {
+    const currentData = queryClient.getQueryData<{ count: number; lastUpdated: number }>(OPTIMISTIC_UPDATE_COUNTER_KEY) || optimisticUpdateCounter;
+    const newData = {
+      count: currentData.count + 1,
+      lastUpdated: Date.now()
+    };
+    queryClient.setQueryData(OPTIMISTIC_UPDATE_COUNTER_KEY, newData);
+    console.log(`🔄 [DataManager] Optimistic update counter incremented: ${newData.count}`);
+  }, [queryClient, optimisticUpdateCounter]);
+
   // ==================== FILE STATUS RESOLUTION ====================
   
   /**
    * File Status Precedence (highest to lowest):
    * 1. Optimistic Delete Registry (locked as "-")
-   * 2. KB Resources Cache (from network)
-   * 3. Default (undefined)
+   * 2. KB Resources Cache (root files - from network)
+   * 3. Folder Status Cache (folder files - from network) 
+   * 4. Default (undefined)
    */
   const resolveFileStatus = useCallback(
-    (fileId: string, kbId: string | null): FileItem["status"] | "-" | null => {
+    (fileId: string, kbId: string | null, folderPath?: string): FileItem["status"] | "-" | null => {
       // 1. Check optimistic delete registry (highest priority)
       if (fileId in registryData.entries) {
         return "-"; // Show as deleted
       }
 
-      // 2. Check KB resources cache (network data)
+      // 2. Check KB resources cache (root files)
       if (kbId) {
         const kbResources = queryClient.getQueryData<{ data: FileItem[] }>(["kb-resources", kbId]);
         const resource = kbResources?.data?.find(r => r.id === fileId);
@@ -145,7 +167,17 @@ export function useDataManager() {
         }
       }
 
-      // 3. Default (file not in KB or no data)
+      // 3. Check folder status cache (folder files)
+      if (kbId && folderPath) {
+        const folderStatus = queryClient.getQueryData<{ data: FileItem[] }>(["kb-file-status", kbId, folderPath]);
+        const folderFile = folderStatus?.data?.find(r => r.id === fileId);
+        if (folderFile) {
+          // Apply optimistic UI: show "pending" as "indexed"
+          return folderFile.status === "pending" ? "indexed" : folderFile.status;
+        }
+      }
+
+      // 4. Default (file not in KB or no data)
       return null;
     },
     [registryData.entries, queryClient]
@@ -153,15 +185,19 @@ export function useDataManager() {
 
   // ==================== CACHE OPERATIONS ====================
   
+  // Root KB Resources Cache (for root files)
   const updateKBResourcesCache = useCallback(
     (kbId: string, updater: (prev: { data: FileItem[] } | undefined) => { data: FileItem[] }) => {
       const cacheKey = ["kb-resources", kbId];
       const currentData = queryClient.getQueryData<{ data: FileItem[] }>(cacheKey);
       const newData = updater(currentData);
       queryClient.setQueryData(cacheKey, newData);
-      console.log(`📝 [DataManager] Updated KB cache: ${kbId}`);
+      console.log(`📝 [DataManager] Updated KB root cache: ${kbId}`);
+      
+      // Trigger re-render for optimistic updates
+      incrementOptimisticUpdateCounter();
     },
-    [queryClient]
+    [queryClient, incrementOptimisticUpdateCounter]
   );
 
   const removeFromKBResourcesCache = useCallback(
@@ -176,12 +212,114 @@ export function useDataManager() {
     [updateKBResourcesCache]
   );
 
+  // Folder File Cache Operations (for Google Drive files)
+  const updateFolderFileCache = useCallback(
+    (folderId: string, updater: (prev: { data: FileItem[] } | undefined) => { data: FileItem[] }) => {
+      const cacheKey = ["drive-files", folderId];
+      const currentData = queryClient.getQueryData<{ data: FileItem[] }>(cacheKey);
+      const newData = updater(currentData);
+      queryClient.setQueryData(cacheKey, newData);
+      console.log(`📝 [DataManager] Updated folder file cache: ${folderId}`);
+    },
+    [queryClient]
+  );
+
+  // Folder Status Cache Operations (for KB folder status)
+  const updateFolderStatusCache = useCallback(
+    (kbId: string, folderPath: string, updater: (prev: { data: FileItem[] } | undefined) => { data: FileItem[] }) => {
+      const cacheKey = ["kb-file-status", kbId, folderPath];
+      const currentData = queryClient.getQueryData<{ data: FileItem[] }>(cacheKey);
+      const newData = updater(currentData);
+      queryClient.setQueryData(cacheKey, newData);
+      console.log(`📝 [DataManager] Updated folder status cache: ${kbId}${folderPath}`);
+    },
+    [queryClient]
+  );
+
+  const removeFromFolderStatusCache = useCallback(
+    (kbId: string, folderPath: string, fileIds: string[]) => {
+      updateFolderStatusCache(kbId, folderPath, (prev) => {
+        if (!prev?.data) return { data: [] };
+        return {
+          data: prev.data.filter(resource => !fileIds.includes(resource.id))
+        };
+      });
+    },
+    [updateFolderStatusCache]
+  );
+
+  // Set optimistic "indexed" status for folder contents
+  const setFolderContentsAsIndexed = useCallback(
+    (kbId: string, folderPath: string, fileIds: string[], files: FileItem[]) => {
+      const optimisticFiles = fileIds.map(fileId => {
+        const file = files.find(f => f.id === fileId);
+        return {
+          id: fileId,
+          name: file?.name || "",
+          type: file?.type || "file" as const,
+          size: file?.size || 0,
+          status: "indexed" as const,
+          indexed_at: new Date().toISOString()
+        };
+      }).filter(f => f.type === "file"); // Only files have status
+
+      updateFolderStatusCache(kbId, folderPath, () => ({ data: optimisticFiles }));
+      console.log(`✅ [DataManager] Set ${optimisticFiles.length} files as indexed in folder ${folderPath}`);
+      
+      // Trigger re-render for expanded folders
+      incrementOptimisticUpdateCounter();
+    },
+    [updateFolderStatusCache, incrementOptimisticUpdateCounter]
+  );
+
+  // ==================== FOLDER HELPER FUNCTIONS ====================
+  
+  // Extract folder path from file name (same logic as useFileTree)
+  const getFolderPathFromFileName = useCallback((fileName: string): string => {
+    const pathParts = fileName.split("/");
+    pathParts.pop(); // Remove filename
+    return "/" + pathParts.join("/");
+  }, []);
+
+  // Get all files in a folder from the file cache
+  const getFolderContents = useCallback((folderId: string): FileItem[] => {
+    const folderData = queryClient.getQueryData<{ data: FileItem[] }>(["drive-files", folderId]);
+    return folderData?.data || [];
+  }, [queryClient]);
+
+  // Find all descendant file IDs recursively
+  const getAllDescendantFileIds = useCallback(
+    (parentFiles: FileItem[], allFiles: FileItem[]): string[] => {
+      const descendants: string[] = [];
+      
+      const processFiles = (files: FileItem[]) => {
+        files.forEach(file => {
+          if (file.type === "file") {
+            descendants.push(file.id);
+          } else if (file.type === "directory") {
+            // Find files in this directory
+            const childFiles = allFiles.filter(f => 
+              f.name.startsWith(file.name + "/") && 
+              f.name.split("/").length === file.name.split("/").length + 1
+            );
+            processFiles(childFiles);
+          }
+        });
+      };
+      
+      processFiles(parentFiles);
+      return descendants;
+    },
+    []
+  );
+
   // ==================== COMPUTED VALUES ====================
   
   const computedValues = useMemo(() => {
     const { state: syncState, kbId: syncKbId } = syncStateData;
     const { queue, processing } = queueData;
     const { entries } = registryData;
+    const { count: optimisticUpdateCount } = optimisticUpdateCounter;
 
     return {
       // Sync state
@@ -200,8 +338,11 @@ export function useDataManager() {
       // Registry state
       optimisticDeleteEntries: entries,
       optimisticDeleteCount: Object.keys(entries).length,
+      
+      // Optimistic update tracking
+      optimisticUpdateCount,
     };
-  }, [syncStateData, queueData, registryData]);
+  }, [syncStateData, queueData, registryData, optimisticUpdateCounter]);
 
   // ==================== PUBLIC API ====================
   
@@ -290,6 +431,9 @@ export function useDataManager() {
       }));
 
       console.log(`🔒 [DataManager] Marked as deleted: ${fileName}`);
+      
+      // Trigger re-render for optimistic deletes
+      incrementOptimisticUpdateCounter();
     },
 
     removeFromRegistry: (fileId: string) => {
@@ -312,12 +456,23 @@ export function useDataManager() {
       console.log("🧹 [DataManager] Registry cleared");
     },
 
-    // Cache operations
+    // Root cache operations (existing)
     updateKBResourcesCache,
     removeFromKBResourcesCache,
 
+    // Folder cache operations (new)
+    updateFolderFileCache,
+    updateFolderStatusCache,
+    removeFromFolderStatusCache,
+    setFolderContentsAsIndexed,
+
     // Status resolution
     resolveFileStatus,
+
+    // Folder helpers
+    getFolderPathFromFileName,
+    getFolderContents,
+    getAllDescendantFileIds,
 
     // Utility
     clearAllState: () => {

@@ -1,46 +1,66 @@
 import { useState, useCallback, useMemo, useEffect } from "react";
 import { FileItem } from "@/lib/types/file";
+import { useDataManager } from "./useDataManager";
 
 interface UseFileSelectionProps {
   files: FileItem[];
   statusMap?: Map<string, string>;
   hasKB?: boolean;
+  kbId?: string | null;
 }
 
-export function useFileSelection({ files, statusMap, hasKB }: UseFileSelectionProps) {
+export function useFileSelection({ files, statusMap, hasKB, kbId }: UseFileSelectionProps) {
   const [rowSelection, setRowSelection] = useState<Record<string, boolean>>({});
+  const { resolveFileStatus, getFolderPathFromFileName } = useDataManager();
 
   // Auto-deselect files that are no longer indexed when in KB mode
   useEffect(() => {
-    if (!hasKB || !statusMap) return;
+    if (!hasKB || !kbId) return;
 
     setRowSelection(prev => {
       const newSelection = { ...prev };
       let hasChanges = false;
 
       Object.keys(prev).forEach(fileId => {
-        const status = statusMap.get(fileId);
+        const file = files.find(f => f.id === fileId);
+        if (!file) return;
+
+        // Use DataManager's resolveFileStatus for accurate status
+        const folderPath = file.level && file.level > 0 ? getFolderPathFromFileName(file.name) : undefined;
+        const resolvedStatus = resolveFileStatus(fileId, kbId, folderPath);
         
         // If file is selected but no longer indexed, deselect it
-        if (status !== "indexed") {
+        if (resolvedStatus !== "indexed") {
           delete newSelection[fileId];
           hasChanges = true;
-          console.log(`Auto-deselected file ${fileId} (status: ${status || 'undefined'})`);
+          console.log(`Auto-deselected file ${fileId} (resolved status: ${resolvedStatus || 'undefined'})`);
         }
       });
 
       return hasChanges ? newSelection : prev;
     });
-  }, [statusMap, hasKB]);
+  }, [files, hasKB, kbId, resolveFileStatus, getFolderPathFromFileName]);
 
   // Helper to check if a file can be selected
   const canSelectFile = useCallback((file: FileItem): boolean => {
     if (!hasKB) return true; // In create mode, all files can be selected
     
-    // In KB mode, only indexed files can be selected
-    const status = statusMap?.get(file.id);
-    return status === "indexed";
-  }, [hasKB, statusMap]);
+    if (!kbId) return false; // No KB ID available
+    
+    // Use DataManager's resolveFileStatus for accurate status resolution
+    const folderPath = file.level && file.level > 0 ? getFolderPathFromFileName(file.name) : undefined;
+    const resolvedStatus = resolveFileStatus(file.id, kbId, folderPath);
+    
+    // Only indexed files can be selected in KB mode
+    const canSelect = resolvedStatus === "indexed";
+    
+    if (file.level === 0) {
+      // Debug root files
+      console.log(`Root file ${file.id}: statusMap has ${statusMap?.get(file.id)}, resolved: ${resolvedStatus}, canSelect: ${canSelect}`);
+    }
+    
+    return canSelect;
+  }, [hasKB, kbId, resolveFileStatus, getFolderPathFromFileName, statusMap]);
 
   // Build a map of parent-child relationships for efficient lookups
   const fileRelationships = useMemo(() => {

@@ -29,7 +29,9 @@ export function FilePicker() {
     syncState,
     isSyncPending,
     isSyncCompleted,
-    queueStats,
+    queueHasItems,
+    queueCount,
+    queueProcessing,
   } = useKnowledgeBaseOperations();
 
   const { files, isLoading, error, toggleFolder, collapseAllFolders, startPrefetch, stopPrefetch, registerFolder, isPrefetching } = useFileTree({
@@ -75,12 +77,12 @@ export function FilePicker() {
             </div>
             
             {/* Queue Status */}
-            {queueStats.hasItems && (
+            {queueHasItems && (
               <div className="flex items-center space-x-2">
                 <span className="font-medium">Delete Queue:</span>
                 <span className="text-blue-600">
-                  {queueStats.count} file(s) queued
-                  {queueStats.processing && " (processing...)"}
+                  {queueCount} file(s) queued
+                  {queueProcessing && " (processing...)"}
                 </span>
               </div>
             )}
@@ -95,12 +97,10 @@ export function FilePicker() {
           toggleFolder={toggleFolder}
           onCreateKB={(resourceIds, files) => {
             createKnowledgeBaseWithFiles(resourceIds, files);
-            setTimeout(() => collapseAllFolders(), 100);
           }}
           onCreateNewKB={createNewKB}
           onDeleteFiles={(selectedIds) => {
             deleteSelectedFiles(selectedIds, files);
-            setTimeout(() => collapseAllFolders(), 100);
           }}
           hasKB={hasKB}
           isCreatingKB={isCreating}
@@ -109,6 +109,7 @@ export function FilePicker() {
           canDeleteFile={canDeleteFile}
           canDeleteFolder={(folder) => canDeleteFolder(folder, files)}
           isFileDeleting={isFileDeleting}
+          kbId={currentKB?.id || null}
           // Prefetch functions
           startPrefetch={startPrefetch}
           stopPrefetch={stopPrefetch}

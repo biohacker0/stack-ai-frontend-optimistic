@@ -41,6 +41,7 @@ interface FilePickerTableProps {
   canDeleteFile?: (file: FileItem) => boolean;
   canDeleteFolder?: (folder: FileItem) => boolean;
   isFileDeleting?: (fileId: string) => boolean;
+  kbId?: string | null;
   // Prefetch functions
   startPrefetch?: (folderId: string, delay?: number) => void;
   stopPrefetch?: (folderId: string) => void;
@@ -62,6 +63,7 @@ export function FilePickerTable({
   canDeleteFile,
   canDeleteFolder,
   isFileDeleting,
+  kbId,
   // Prefetch functions
   startPrefetch,
   stopPrefetch,
@@ -76,7 +78,8 @@ export function FilePickerTable({
   const { rowSelection, selectedFiles, selectedResourceIds, handleRowSelection, handleSelectAll, canSelectFile } = useFileSelection({ 
     files, 
     statusMap, 
-    hasKB 
+    hasKB,
+    kbId
   });
 
   // Define columns with custom selection logic
