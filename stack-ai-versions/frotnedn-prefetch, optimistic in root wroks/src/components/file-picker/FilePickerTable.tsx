@@ -77,11 +77,11 @@ export function FilePickerTable({
   const [columnVisibility, setColumnVisibility] = useState<VisibilityState>({});
 
   // Use custom selection hook
-  const { rowSelection, selectedFiles, selectedResourceIds, handleRowSelection, handleSelectAll, canSelectFile } = useFileSelection({ 
-    files, 
-    statusMap, 
+  const { rowSelection, selectedFiles, selectedResourceIds, handleRowSelection, handleSelectAll, canSelectFile } = useFileSelection({
+    files,
+    statusMap,
     hasKB,
-    kbId
+    kbId,
   });
 
   // Define columns with custom selection logic
@@ -123,6 +123,7 @@ export function FilePickerTable({
             />
           );
         },
+        size: 10, // Fixed width for checkbox column
         enableSorting: false,
         enableHiding: false,
       },
@@ -158,9 +159,9 @@ export function FilePickerTable({
           const isFiltering = filterValue && filterValue.length > 0;
 
           return (
-            <FileNameCell 
-              file={file} 
-              isFiltering={isFiltering} 
+            <FileNameCell
+              file={file}
+              isFiltering={isFiltering}
               toggleFolder={toggleFolder}
               startPrefetch={startPrefetch}
               stopPrefetch={stopPrefetch}
@@ -173,6 +174,7 @@ export function FilePickerTable({
       {
         accessorKey: "size",
         header: () => <div className="text-right pr-8">Size</div>,
+        size: 30, // Fixed width for size column
         cell: ({ row }) => {
           const size = row.getValue("size") as number;
           return <FileSizeCell size={size} />;
@@ -181,6 +183,7 @@ export function FilePickerTable({
       {
         accessorKey: "status",
         header: "Status",
+        size: 50, // Fixed width for status column
         cell: ({ row }) => {
           const file = row.original;
           return <FileStatusCell file={file} isFileDeleting={isFileDeleting} />;
@@ -225,14 +228,14 @@ export function FilePickerTable({
         filteredCount={table.getFilteredRowModel().rows.length}
         selectedFiles={selectedFiles}
         selectedResourceIds={selectedResourceIds}
-                  hasKB={hasKB}
-          isCreatingKB={isCreatingKB}
-          isDeletingKB={isDeletingKB}
-          isActuallyDeleting={isActuallyDeleting}
-          onCreateKB={onCreateKB}
-          onCreateNewKB={onCreateNewKB}
-          onDeleteFiles={onDeleteFiles}
-          allFiles={files}
+        hasKB={hasKB}
+        isCreatingKB={isCreatingKB}
+        isDeletingKB={isDeletingKB}
+        isActuallyDeleting={isActuallyDeleting}
+        onCreateKB={onCreateKB}
+        onCreateNewKB={onCreateNewKB}
+        onDeleteFiles={onDeleteFiles}
+        allFiles={files}
       />
 
       {/* Table Container with Internal Scroll */}
@@ -244,7 +247,15 @@ export function FilePickerTable({
                 <TableRow key={headerGroup.id}>
                   {headerGroup.headers.map((header) => {
                     return (
-                      <TableHead key={header.id} className="bg-gray-50 font-semibold text-gray-900 border-r border-gray-200 last:border-r-1">
+                      <TableHead
+                        key={header.id}
+                        className="bg-gray-50 font-semibold text-gray-900 border-r border-gray-200 last:border-r-1"
+                        style={{
+                          width: header.column.columnDef.size ? `${header.column.columnDef.size}px` : "auto",
+                          minWidth: header.column.columnDef.size ? `${header.column.columnDef.size}px` : "auto",
+                          maxWidth: header.column.columnDef.size ? `${header.column.columnDef.size}px` : "auto",
+                        }}
+                      >
                         {header.isPlaceholder ? null : flexRender(header.column.columnDef.header, header.getContext())}
                       </TableHead>
                     );
@@ -280,15 +291,23 @@ export function FilePickerTable({
                   };
 
                   return (
-                    <TableRow 
-                      key={row.id} 
-                      data-state={row.getIsSelected() && "selected"} 
+                    <TableRow
+                      key={row.id}
+                      data-state={row.getIsSelected() && "selected"}
                       className="hover:bg-gray-50 /* border-b border-gray-200 */"
                       onMouseEnter={handleRowMouseEnter}
                       onMouseLeave={handleRowMouseLeave}
                     >
                       {row.getVisibleCells().map((cell) => (
-                        <TableCell key={cell.id} className="/* border-r border-gray-100 */ last:border-r-0 py-2.5 px-2">
+                        <TableCell
+                          key={cell.id}
+                          className="/* border-r border-gray-100 */ last:border-r-0 py-2.5 px-2"
+                          style={{
+                            width: cell.column.columnDef.size ? `${cell.column.columnDef.size}px` : "auto",
+                            minWidth: cell.column.columnDef.size ? `${cell.column.columnDef.size}px` : "auto",
+                            maxWidth: cell.column.columnDef.size ? `${cell.column.columnDef.size}px` : "auto",
+                          }}
+                        >
                           {flexRender(cell.column.columnDef.cell, cell.getContext())}
                         </TableCell>
                       ))}

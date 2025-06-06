@@ -15,29 +15,57 @@ export function FileStatusCell({ file, isFileDeleting }: FileStatusCellProps) {
 
   // Never show status for directories
   if (file.type === "directory") {
-    return <span className="text-gray-400">-</span>;
+    return (
+      <div className="w-full text-center">
+        <span className="text-gray-400">-</span>
+      </div>
+    );
   }
 
   // Handle optimistic delete state (status is "-")
   if (statusOverride === "-" || status === undefined || status === null) {
-    return <span className="text-gray-400 font-medium">-</span>;
+    return (
+      <div className="w-full text-center">
+        <span className="text-gray-400 font-medium">-</span>
+      </div>
+    );
   }
 
   if (status === "indexed") {
-    return <span className="text-green-600 font-medium">✓ Indexed</span>;
+    return (
+      <div className="w-full text-center">
+        <span className="text-green-600 font-medium text-sm">✓ Indexed</span>
+      </div>
+    );
   }
   
   if (status === "pending") {
-    return <span className="text-yellow-600 font-medium">⏳ Indexing...</span>;
+    return (
+      <div className="w-full text-center">
+        <span className="text-yellow-600 font-medium text-sm">⏳ Indexing</span>
+      </div>
+    );
   }
   
   if (status === "pending_delete" || isFileDeleting?.(file.id)) {
-    return <span className="text-red-600 font-medium">🗑️ Deleting...</span>;
+    return (
+      <div className="w-full text-center">
+        <span className="text-red-600 font-medium text-sm">🗑️ Deleting</span>
+      </div>
+    );
   }
 
   if (status === "error") {
-    return <span className="text-red-600 font-medium">❌ Failed</span>;
+    return (
+      <div className="w-full text-center">
+        <span className="text-red-600 font-medium text-sm">❌ Failed</span>
+      </div>
+    );
   }
 
-  return <span className="text-gray-400">-</span>;
+  return (
+    <div className="w-full text-center">
+      <span className="text-gray-400">-</span>
+    </div>
+  );
 } 
