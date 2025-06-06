@@ -293,22 +293,22 @@ export function FilePickerTable({
                   return (
                     <TableRow
                       key={row.id}
-                      data-state={row.getIsSelected() && "selected"}
-                      className="hover:bg-gray-50 /* border-b border-gray-200 */"
+                      data-state={row.getIsSelected() ? "selected" : undefined}
+                      className={`hover:bg-gray-50 transition-colors ${row.getIsSelected() ? "bg-blue-50" : ""}`}
                       onMouseEnter={handleRowMouseEnter}
                       onMouseLeave={handleRowMouseLeave}
                     >
                       {row.getVisibleCells().map((cell) => (
                         <TableCell
                           key={cell.id}
-                          className="/* border-r border-gray-100 */ last:border-r-0 py-2.5 px-2"
+                          className="last:border-r-0 py-2 px-2"
                           style={{
                             width: cell.column.columnDef.size ? `${cell.column.columnDef.size}px` : "auto",
                             minWidth: cell.column.columnDef.size ? `${cell.column.columnDef.size}px` : "auto",
                             maxWidth: cell.column.columnDef.size ? `${cell.column.columnDef.size}px` : "auto",
                           }}
                         >
-                          {flexRender(cell.column.columnDef.cell, cell.getContext())}
+                          <div className="flex items-center gap-2 text-sm font-normal leading-normal">{flexRender(cell.column.columnDef.cell, cell.getContext())}</div>
                         </TableCell>
                       ))}
                     </TableRow>
