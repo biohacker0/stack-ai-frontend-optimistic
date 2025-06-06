@@ -34,26 +34,32 @@ export function FilePickerControls({
   allFiles,
 }: FilePickerControlsProps) {
   return (
-    <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4 flex-shrink-0">
-      {/* Search Section */}
-      <div className="flex items-center space-x-2 flex-1">
+    <div className="flex flex-col gap-4 flex-shrink-0">
+      {/* Search Section - Full Width */}
+      <div className="flex items-center space-x-2 w-full">
         <Input
           placeholder="Filter by name or status (indexed, pending, etc.)"
           value={searchValue}
           onChange={(event) => onSearchChange(event.target.value)}
-          className="w-full lg:w-180 border-gray-300 focus:border-blue-500 focus:ring-blue-500"
+          className="w-full border-gray-300 focus:border-blue-500 focus:ring-blue-500"
         />
         {searchValue && <span className="text-sm text-gray-500 whitespace-nowrap">Showing {filteredCount} filtered results</span>}
       </div>
 
-      {/* Action Buttons */}
-      <div className="display grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2 flex-shrink-0">
+      {/* Action Buttons - Below Search */}
+      <div className="w-full">
         {!hasKB ? (
-          <Button disabled={selectedFiles.length === 0 || isCreatingKB} className="bg-blue-600 hover:bg-blue-700" onClick={() => onCreateKB?.(selectedResourceIds, allFiles)}>
+          // Single button - full width
+          <Button 
+            disabled={selectedFiles.length === 0 || isCreatingKB} 
+            className="w-full bg-blue-600 hover:bg-blue-700" 
+            onClick={() => onCreateKB?.(selectedResourceIds, allFiles)}
+          >
             {isCreatingKB ? "Creating KB..." : `Create Knowledge Base (${selectedFiles.length} files)`}
           </Button>
         ) : (
-          <>
+          // Two buttons - equal width with gap, stack on small screens
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 w-full">
             <Button
               variant="outline"
               disabled={selectedFiles.length === 0 || isActuallyDeleting}
@@ -62,10 +68,14 @@ export function FilePickerControls({
             >
               {isActuallyDeleting ? "Deleting..." : `Delete Selected Files (${selectedFiles.length})`}
             </Button>
-            <Button variant="outline" onClick={onCreateNewKB} disabled={isDeletingKB}>
+            <Button 
+              variant="outline" 
+              onClick={onCreateNewKB} 
+              disabled={isDeletingKB}
+            >
               Create New Knowledge Base
             </Button>
-          </>
+          </div>
         )}
       </div>
     </div>

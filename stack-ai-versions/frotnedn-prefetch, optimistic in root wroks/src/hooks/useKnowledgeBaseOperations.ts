@@ -1,7 +1,7 @@
 import { useState, useCallback, useMemo, useEffect } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { createKnowledgeBase, syncKnowledgeBase, deleteKBResource } from "@/lib/api/knowledgeBase";
-import { saveKBToStorage, getKBFromStorage, clearKBFromStorage } from "@/lib/utils/localStorage";
+import { saveKBToStorage, getKBFromStorage, clearKBFromStorage, clearCacheFromStorage } from "@/lib/utils/localStorage";
 import { deduplicateResourceIds } from "@/lib/utils/resourceDeduplication";
 import { useKnowledgeBaseStatus } from "./useKnowledgeBaseStatus";
 import { useKnowledgeBaseDeletion } from "./useKnowledgeBaseDeletion";
@@ -67,6 +67,9 @@ export function useKnowledgeBaseOperations() {
     
     // Cache persistence
     persistCacheToStorage,
+    
+    // Complete cleanup
+    clearAllState,
   } = useDataManager();
 
   // Poll KB status after creation - enable polling when we have a KB
@@ -509,20 +512,25 @@ export function useKnowledgeBaseOperations() {
   );
 
   const createNewKB = useCallback(() => {
-    console.log("Creating new KB - clearing all state and reloading");
+    console.log("🔄 Creating new KB - clearing ALL state and cache");
     
-    // Reset all state systems
-    resetSyncState();
-    clearQueue();
-    clearRegistry();
+    // 1. Use comprehensive cleanup from DataManager (this handles everything)
+    clearAllState();
     
-    // Clear KB storage and cache
+    // 2. Clear KB from localStorage  
     clearKBFromStorage();
+    
+    // 3. Clear ALL React Query caches to ensure clean state
+    queryClient.clear();
+    console.log("🗑️ Cleared all React Query caches");
+    
+    // 4. Reset component state
     setCurrentKB(null);
     
-    // Force page reload to ensure clean state
+    // 5. Force page reload to ensure completely clean state
+    console.log("🔄 Reloading page for clean state");
     window.location.reload();
-  }, [resetSyncState, clearQueue, clearRegistry]);
+  }, [clearAllState, queryClient]);
 
   return {
     currentKB,
