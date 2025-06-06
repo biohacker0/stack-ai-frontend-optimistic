@@ -63,46 +63,48 @@ export function FileNameCell({
       className="flex items-center space-x-1" 
       style={{ paddingLeft: isFiltering ? "0px" : `${level * 20}px` }}
     >
-      {/* Expand/Collapse Button */}
+      {/* Expand/Collapse Button - Fixed size container */}
       {!isFiltering && isDirectory && (
-        <Button
-          variant="ghost"
-          size="sm"
-          className="h-4 w-4 p-0 hover:bg-gray-100"
-          onClick={(e) => {
-            e.stopPropagation();
-            toggleFolder?.(file.id);
-          }}
-          disabled={isLoading}
-        >
-          {isLoading ? (
-            <div className="h-3 w-3 animate-spin rounded-full border border-gray-300 border-t-blue-600" />
-          ) : isExpanded ? (
-            <ChevronDown className="h-3 w-3" />
-          ) : (
-            <ChevronRight className="h-3 w-3" />
-          )}
-        </Button>
+        <div className="flex-shrink-0 w-4 h-4 flex items-center justify-center">
+          <Button
+            variant="ghost"
+            size="sm"
+            className="h-4 w-4 p-0 hover:bg-gray-100 flex items-center justify-center"
+            onClick={(e) => {
+              e.stopPropagation();
+              toggleFolder?.(file.id);
+            }}
+            disabled={isLoading}
+          >
+            {isLoading ? (
+              <div className="h-4 w-4 animate-spin rounded-full border border-gray-300 border-t-blue-600" />
+            ) : isExpanded ? (
+              <ChevronDown className="h-4 w-4" />
+            ) : (
+              <ChevronRight className="h-4 w-4" />
+            )}
+          </Button>
+        </div>
       )}
 
-      {/* Spacer for files when not filtering */}
-      {!isFiltering && !isDirectory && <div className="w-4" />}
+      {/* Spacer for files when not filtering - Fixed size */}
+      {!isFiltering && !isDirectory && <div className="flex-shrink-0 w-4 h-4" />}
 
-      {/* File/Folder Icon with prefetch indicator */}
-      <div className="relative">
+      {/* File/Folder Icon with prefetch indicator - Fixed size container */}
+      <div className="relative flex-shrink-0 w-4 h-4 flex items-center justify-center">
         {isDirectory ? (
           isExpanded ? (
             <FolderOpen className="h-4 w-4 text-blue-500" />
           ) : (
-            <Folder className={`h-4 w-4 ${isPrefetchingFolder ? 'text-blue-400 animate-pulse' : 'text-blue-500'}`} />
+            <Folder className={`h-4 w-4 ${isPrefetchingFolder ? 'text-blue-400' : 'text-blue-500'}`} />
           )
         ) : (
           <File className="h-4 w-4 text-gray-500" />
         )}
-        {/* Small prefetch indicator */}
+        {/* Small prefetch indicator - positioned to not affect layout */}
         {isPrefetchingFolder && (
           <div 
-            className="absolute -top-1 -right-1 h-2 w-2 bg-blue-400 rounded-full animate-pulse" 
+            className="absolute -top-0.5 -right-0.5 h-1.5 w-1.5 bg-blue-400 rounded-full opacity-75" 
             title="Pre-loading folder contents..."
           />
         )}
@@ -112,7 +114,7 @@ export function FileNameCell({
       {isLoading ? (
         <Skeleton className="h-4 w-32" />
       ) : (
-        <span className="truncate cursor-default" title={isFiltering ? file.name : file.name.split("/").pop()}>
+        <span className="truncate cursor-default min-w-0" title={isFiltering ? file.name : file.name.split("/").pop()}>
           {isFiltering ? truncatePath(file.name) : file.name.split("/").pop()}
         </span>
       )}
