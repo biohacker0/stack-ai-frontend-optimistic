@@ -183,7 +183,7 @@ export function FilePickerTable({
       {
         accessorKey: "status",
         header: "Status",
-        size: 50, // Fixed width for status column
+        size: 35, // Fixed width for status column
         cell: ({ row }) => {
           const file = row.original;
           return <FileStatusCell file={file} isFileDeleting={isFileDeleting} />;

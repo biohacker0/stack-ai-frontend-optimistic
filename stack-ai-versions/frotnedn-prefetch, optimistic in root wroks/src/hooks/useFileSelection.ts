@@ -29,8 +29,9 @@ export function useFileSelection({ files, statusMap, hasKB, kbId }: UseFileSelec
         const folderPath = file.level && file.level > 0 ? getFolderPathFromFileName(file.name) : undefined;
         const resolvedStatus = resolveFileStatus(fileId, kbId, folderPath);
         
-        // If file is selected but no longer indexed, deselect it
-        if (resolvedStatus !== "indexed") {
+        // If file is selected but no longer indexed/failed, deselect it
+        const validStatuses = ["indexed", "error", "failed"];
+        if (!validStatuses.includes(resolvedStatus || "")) {
           delete newSelection[fileId];
           hasChanges = true;
           console.log(`Auto-deselected file ${fileId} (resolved status: ${resolvedStatus || 'undefined'})`);
@@ -43,16 +44,25 @@ export function useFileSelection({ files, statusMap, hasKB, kbId }: UseFileSelec
 
   // Helper to check if a file can be selected
   const canSelectFile = useCallback((file: FileItem): boolean => {
-    if (!hasKB) return true; // In create mode, all files can be selected
+    if (!hasKB) {
+      // In create mode, all files and folders can be selected
+      return true;
+    }
     
     if (!kbId) return false; // No KB ID available
+    
+    // In delete mode (hasKB=true), only individual files with indexed/failed status can be selected
+    if (file.type === "directory") {
+      // Folders cannot be selected for deletion (API limitation)
+      return false;
+    }
     
     // Use DataManager's resolveFileStatus for accurate status resolution
     const folderPath = file.level && file.level > 0 ? getFolderPathFromFileName(file.name) : undefined;
     const resolvedStatus = resolveFileStatus(file.id, kbId, folderPath);
     
-    // Only indexed files can be selected in KB mode
-    const canSelect = resolvedStatus === "indexed";
+    // Only files with indexed or failed status can be selected for deletion
+    const canSelect = resolvedStatus === "indexed" || resolvedStatus === "error" || resolvedStatus === "failed";
     
     if (file.level === 0) {
       // Debug root files
@@ -127,8 +137,8 @@ export function useFileSelection({ files, statusMap, hasKB, kbId }: UseFileSelec
           delete newSelection[fileId];
         }
 
-        // If it's a directory, handle all descendants (but validate each one)
-        if (file.type === "directory") {
+        // If it's a directory and we're in create mode, handle all descendants
+        if (file.type === "directory" && !hasKB) {
           const descendantIds = getAllDescendantIds(fileId);
 
           descendantIds.forEach((id) => {
@@ -142,6 +152,7 @@ export function useFileSelection({ files, statusMap, hasKB, kbId }: UseFileSelec
             }
           });
         }
+        // In delete mode (hasKB=true), folders cannot be selected, so no descendant handling needed
 
         return newSelection;
       });
